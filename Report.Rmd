@@ -1,0 +1,87 @@
+---
+title: "\\fontsize{14pt}{3pt}\\selectfont \\textbf{\\textit{Rain in Australia - Kaggle Open Source Dataset}}"
+author: "\\fontsize{12pt}{3pt}\\selectfont Luiz Guilherme Gomes Fregona"
+date: "\\fontsize{12pt}{3pt}\\selectfont July, 2021"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    toc: no
+    toc_depth: 3
+    df_print: kable
+header-includes:
+  - \usepackage{fontspec}
+  - \usepackage{xcolor}
+  - \usepackage{titling}
+  - \usepackage{booktabs}
+  - \usepackage{array}
+  - \usepackage{multirow}
+  - \usepackage{wrapfig}
+  - \usepackage{float}
+  - \usepackage{colortbl}
+  - \usepackage{pdflscape}
+  - \usepackage{tabu}
+  - \usepackage{threeparttablex}
+  - \usepackage{threeparttable}
+  - \usepackage{makecell}
+  - \usepackage[normalem]{ulem}
+  - \setmainfont{Times New Roman}
+  - \pretitle{\begin{flushleft}}
+  - \posttitle{\end{flushleft}}  
+  - \preauthor{\begin{flushleft}}
+  - \postauthor{\end{flushleft}}  
+  - \predate{\begin{flushleft}}
+  - \postdate{\end{flushleft}}  
+editor_options: 
+  chunk_output_type: console
+---
+\newpage
+\thispagestyle{empty}
+\mbox{}
+
+\tableofcontents
+\thispagestyle{plain}
+
+\newpage
+\thispagestyle{empty}
+\mbox{}
+
+```{r, setup, include=FALSE}
+knitr::opts_chunk$set(echo = T,
+                      message = F,
+                      warning = F,
+                      error = F)
+```
+
+```{r Remove scientific notation, include=FALSE}
+options(scipen = 999)
+```
+
+# 1. Introduction
+
+
+# 2. Objetives
+
+
+
+# 3. Pipeline
+
+\newpage
+
+# 4. Executive Summary
+
+
+\newpage
+
+# 5. Data Cleaning
+
+
+\newpage
+
+# 6. Data Exploration
+
+\newpage
+
+# 7. Modeling
+
+
+# 8. Conclusion
