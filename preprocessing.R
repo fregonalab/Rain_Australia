@@ -11,19 +11,20 @@ library(DescTools)
 load("rda/rain.rda")
 
 #Preprocessing steps:
-# - 1º - Feature Engineering 
-# - 2º - Splitting Training set and Validation set
-# - 3º - Remove features with very few non-unique values
+# - 1º - Split data set into training set and validation set
+# - 2º - Remove features with very few non-unique values
 #or close to zero variation
-# - 4º - Remove predictors highly correlated
-# - 5º - Handle NA values
-# - 6º - Transform few skewed predictors (if necessary)
-# - 7º - Normalization
-#-----------------------------------------------------------------------------------------------------------------#
-#                                          1. Feature Engineering                                                 #
-#-----------------------------------------------------------------------------------------------------------------#
-#The first step during pre processing is turning variables into classes that facilitates data modeling.
-#It is recommended to use categorical predictors as factors when coding machine learning applications in R.
+# - 3º - Remove predictors highly correlated
+# - 4º - Handle NA values
+# - 5º - Transform few skewed predictors (if necessary)
+# - 6º - Feature Scaling
+# - 7º - Split training set and validation set into outcome and predictors
+
+#Before anything, we will also remove the observation with a "blank" value. 
+ind_blank <- which(dat$RainTomorrow == "")
+dat <- dat[-ind_blank, ]
+
+#To facilitate the preprocessing step, we are going to turn categorical data into factors.
 #As we have seen in EDA, Location; WindGustDir, WindGustSpeed, WindDir9am, WindDir3pm, Cloud3pm, Cloud9am,
 #RainToday and RainTomorrow.
 
@@ -43,18 +44,18 @@ eng_dat[,ind] <- lapply(eng_dat[ , ind],factor)
 str(eng_dat)
 
 #-----------------------------------------------------------------------------------------------------------------#
-#                                          2. Splitting data set                                                  #
+#                                          1. Splitting data set                                                  #
 #-----------------------------------------------------------------------------------------------------------------#
 #Before doing any preprocessing, it is recommended to split the data into train and test set. 
 #The reason for that is to avoid data leak from the test set into the training set, 
 #so all the preprocessing should be based on the training data.
 set.seed(1, sample.kind = "Rounding")
 test_ind <- createDataPartition(eng_dat$Location, times = 1, p = 0.1, list = FALSE)
-validation_set <- eng_dat[test_ind, ]
+test_set <- eng_dat[test_ind, ]
 train_set <- eng_dat[-test_ind, ]
 
 #-----------------------------------------------------------------------------------------------------------------#
-#                                          3. Near zero variance Features                                         #
+#                                          2. Near zero variance Features                                         #
 #-----------------------------------------------------------------------------------------------------------------#
 #Predictions are based on variations in our data. 
 #Features with null or low standard deviation do
@@ -67,7 +68,7 @@ nzv <- nearZeroVar(train_set)
 #None of the predictors have zero variance!
 
 #-----------------------------------------------------------------------------------------------------------------#
-#                                          4. Remove highly correlated predictors                                 #
+#                                          3. Remove highly correlated predictors                                 #
 #-----------------------------------------------------------------------------------------------------------------#
 #In a nutshell, to decrease redundancy in the data set,
 #highly correlated predictors must be removed. However,
@@ -103,7 +104,7 @@ corrplot(corr, method = "circle", order = "hclust", addrect = 6, addCoef.col="bl
 #We will remove one of each pair to prevent multicollinearity.
 ind_col <- match(c("Temp9am","Temp3pm","Pressure9am"), names(train_set))
 train_set <- train_set[ ,-ind_col]
-validation_set <- validation_set[ ,-ind_col]
+test_set <- test_set[ ,-ind_col]
 
 #---------------------------------------------------------#
 #                4.1 Categorical Predictors               #
@@ -133,8 +134,11 @@ corrplot::corrplot(DescTools::PairApply(as.matrix(dat_cat), DescTools::CramerV, 
 
 #From the Cramer V's matrix, no pair of features are highly correlated.
 
+#Cleaning Global environment
+rm(ind, ind_col, test_ind, eng_dat, dat, ind_blank, dat_cat, corr, nzv, names_col)
+
 #-----------------------------------------------------------------------------------------------------------------#
-#                                          5. Handle NA values                                                    #
+#                                          4. Handle NA values                                                    #
 #-----------------------------------------------------------------------------------------------------------------#
 #First, let's understand how much data are missing.
 
@@ -158,7 +162,7 @@ train_set %>%
 #A important note is that we can't impute the predictor RainTomorrow for missing values, it will be predicted.
 #Thus, we have to drop the rows with missing values first, before imputing. This is done in the train and test set.
 train_set <- train_set[!is.na(train_set$RainTomorrow), ]
-validation_set <- validation_set[!is.na(validation_set$RainTomorrow), ]
+test_set <- test_set[!is.na(test_set$RainTomorrow), ]
 
 #For imputation and Normalization, the standard deviation (sd),
 #the mean, median and mode must be define in the training set.
@@ -169,15 +173,11 @@ validation_set <- validation_set[!is.na(validation_set$RainTomorrow), ]
 train_mean <- train_set %>% 
   summarise(across(where(is.numeric) & 
                      !c("Evaporation", "WindGustSpeed", "WindSpeed3pm","WindSpeed9am", "Rainfall"), 
-                   ~mean(.)))
+                   ~mean(., na.rm = TRUE)))
 
 train_median <- train_set %>% 
   select(c("Evaporation", "WindGustSpeed", "WindSpeed3pm","WindSpeed9am", "Rainfall")) %>% 
-  summarise(across(everything(), ~median(.)))
-
-train_sd <- train_set %>% 
-  select_if(is.numeric) %>%
-  summarise(across(everything(), ~sd(.)))
+  summarise(across(everything(), ~median(., na.rm = TRUE)))
 
 #Base R does not have the mode operator. We have built it, and stored it 
 #as a function.
@@ -192,107 +192,139 @@ train_mode <- train_set %>%
   summarise(across(everything(), ~Mode(.)))
 
 #---------------------------------------------------------#
-#          5.1. Imputation - Numeric Features             #
+#          4.1. Imputation - Numeric Features             #
 #---------------------------------------------------------#
+#The function for the imputation process is define as follows:
+source("functions/imputation.R")
+
 #----------------------------------------#
-#           5.1.1 Training Set           #
+#           4.1.1 Training Set           #
 #----------------------------------------#
 #The data exploration showed that Evaporation, WindGustSpeed3pm, 
 #WindSpeed9am,WindSpeed3pm, and Rainfall have huge outliers values.
 #Those are going to be imputed by their median values.
 
 #Impute NA's with median values
-train_set <- train_set %>%
-  mutate(across(c("Evaporation", "WindGustSpeed", "WindSpeed3pm","WindSpeed9am", "Rainfall"), function(x){
-    y <- ifelse(is.na(x), median(x, na.rm = TRUE), x)
-  })) 
+vars <- c("Evaporation", "WindGustSpeed", "WindSpeed3pm","WindSpeed9am", "Rainfall")
+train_set <- Imputation(train_set, train_median, vars)
 
 #Check if the imputation was done correctly
 train_set %>% summarise(across(everything(), ~sum(is.na(.))))
 
 #Impute NA's with mean in all remaining numeric variables
-train_set <- train_set %>%
-  mutate(across(where(is.numeric) & !c("Evaporation", "WindGustSpeed", "WindSpeed3pm","WindSpeed9am", "Rainfall"), function(x){
-                  y <- ifelse(is.na(x), mean(x, na.rm = TRUE), x)
-  })) 
+vars <- c("MinTemp","MaxTemp","Sunshine","Humidity9am","Humidity3pm","Pressure3pm")
+train_set <- Imputation(train_set, train_mean, vars)
 
 #Check if the imputation was done correctly
 train_set %>% summarise(across(everything(), ~sum(is.na(.))))
 
 #----------------------------------------#
-#             5.1.2 Test Set             #
+#             4.1.2 Test Set             #
 #----------------------------------------#
 #Here, we will use the same statistical parameters to 
 #perform imputation in our test set.
 
 #Impute NA's with median values in "Evaporation", "WindGustSpeed", "WindSpeed3pm","WindSpeed9am", "Rainfall"
-for (i in 1:5){
-  index <- match(c("Evaporation", "WindGustSpeed", "WindSpeed3pm","WindSpeed9am", "Rainfall"),names(validation_set))
-  validation_set[,index[i]] <- ifelse(is.na(validation_set[,index[i]]), train_median[1,i], validation_set[,index[i]])
-}
+vars <- c("Evaporation", "WindGustSpeed", "WindSpeed3pm","WindSpeed9am", "Rainfall")
+test_set <- Imputation(test_set, train_median, vars)
 
 #Check if the imputation was done correctly
-validation_set %>% summarise(across(everything(), ~sum(is.na(.))))
+test_set %>% summarise(across(everything(), ~sum(is.na(.))))
 
 #Impute NA's with mean in all remaining numeric variables
-for (i in 1:6){
-  index <- match(c("MinTemp","MaxTemp","Sunshine","Humidity9am","Humidity3pm", "Pressure3pm"), names(validation_set))
-  validation_set[,index[i]] <- ifelse(is.na(validation_set[,index[i]]), train_mean[1,i], validation_set[,index[i]])
-}
+vars <- c("MinTemp","MaxTemp","Sunshine","Humidity9am","Humidity3pm","Pressure3pm")
+test_set <- Imputation(test_set, train_mean, vars)
 
 #Check if the imputation was done correctly
-validation_set %>% summarise(across(everything(), ~sum(is.na(.))))
+test_set %>% summarise(across(everything(), ~sum(is.na(.))))
 
 #---------------------------------------------------------#
-#          5.2. Imputation - Categorical Features         #
+#          4.2. Imputation - Categorical Features         #
 #---------------------------------------------------------#
 
 #----------------------------------------#
-#           5.1.1 Training Set           #
+#           4.1.1 Training Set           #
 #----------------------------------------#
 #Impute NA values in categorical variables
-for (i in 1:7){
-  index <- match(c("Location","WindGustDir","WindDir9am","WindDir3pm","Cloud9am","Cloud3pm","RainToday"), names(train_set))
-  train_set[,index[i]] <- ifelse(is.na(train_set[,index[i]]), train_mode[1,i], train_set[,index[i]])
-}
+vars <- c("Location","WindGustDir","WindDir9am","WindDir3pm","Cloud9am","Cloud3pm","RainToday")
+train_set <- Imputation(train_set, train_mode, vars)
 
 #Check if the imputation was done correctly
 train_set %>% summarise(across(everything(), ~sum(is.na(.))))
 
 #----------------------------------------#
-#             5.1.2 Test Set             #
+#             4.1.2 Test Set             #
 #----------------------------------------#
 #Impute NA values in categorical variables
-for (i in 1:7){
-  index <- match(c("Location","WindGustDir","WindDir9am","WindDir3pm","Cloud9am","Cloud3pm","RainToday"), names(validation_set))
-  validation_set[,index[i]] <- ifelse(is.na(validation_set[,index[i]]), train_mode[1,i], validation_set[,index[i]])
-}
+vars <- c("Location","WindGustDir","WindDir9am","WindDir3pm","Cloud9am","Cloud3pm","RainToday")
+test_set <- Imputation(test_set, train_mode, vars)
 
 #Check if the imputation was done correctly
-validation_set %>% summarise(across(everything(), ~sum(is.na(.))))
+test_set %>% summarise(across(everything(), ~sum(is.na(.))))
+
+#Clean Global Environment
+rm(train_mode, train_median, train_mean, Imputation, Mode, vars) 
+#-----------------------------------------------------------------------------------------------------------------#
+#                                                5. Transformations                                               #
+#-----------------------------------------------------------------------------------------------------------------#
+#According to the data exploration, the distribution of "Evaporation", "Rainfall", "WindSpeed9am", and "WindSpeed3pm" 
+#are overly asymmetric. The skewness function is a numeric evidence of this observation. Values higher than 1 must be
+#transformed.
+train_set %>%
+  summarise(across(where(is.numeric), ~skewness(.)))
+
+#As we can see, "Evaporation" and "Rainfall" are extremely skewed and must be transformed.
+#We are going to apply a cube root transformation, because all of them are extremely right skewed.
+train_set <- train_set %>%
+  mutate(across(c("Evaporation", "Rainfall"), function(x) x^(1/3)))
+
+#Rainfall is still right skewed. 
+train_set %>%
+  summarise(across(c("Evaporation", "Rainfall"), ~skewness(.)))
 
 #-----------------------------------------------------------------------------------------------------------------#
-#                                                6. Transformations                                               #
+#                                              6. Feature Scaling                                                 #
 #-----------------------------------------------------------------------------------------------------------------#
+#Feature scaling is a method used to normalize the range of features. This domain is subdivided in two main categories,
+#Normalization and Standardization. Normalization is a scaling technique in which values are shifted and re scaled 
+#so that they end up ranging between 0 and 1. On the other hand, Standardization is a technique where the values 
+#are centered around the mean with a unit standard deviation. This means that the mean of the attribute becomes 
+#zero and the resultant distribution has a unit standard deviation. Here, we are going to apply both.
 
+#A important note is that the mean and sd are from the training set for either the training and validation sets. The
+#caret package has a function called preProcess, which facilitates the whole process.
 
+#Apply preProcess in the train_set
+train_param <- preProcess(train_set,
+                    method = "scale","center")
+
+#Scale train_set with parameters obtained before
+train_set <- predict(train_param, train_set)
+
+##Scale train_set with the same parameters obtained before
+test_set <- predict(train_param, test_set)
 
 #-----------------------------------------------------------------------------------------------------------------#
-#                                                7. Normalization                                                 #
+#                       7.Split training set and validation set into outcome and predictors                       #                            #
 #-----------------------------------------------------------------------------------------------------------------#
-## centered
-sweep(trainData, 2L, trainMean) # using the default "-" to subtract mean column-wise   
-## centered AND scaled
-norm2.testData <- sweep(sweep(testData, 2L, trainMean), 2, trainSd, "/")
+#To improve coding performance, we are going to split the data sets into y and x. y represents the outcomes,
+#and x the predictors. 
 
+# Splitting the data into y and x
+x_train <- subset(train_set, select = -c(RainTomorrow,Date,Location))
+y_train <- subset(train_set, select = c(RainTomorrow))
 
+x_test <- subset(test_set, select = -c(RainTomorrow,Date,Location))
+y_test <- subset(test_set, select = c(RainTomorrow))
 
-
+#Clean Global Environment
+rm(test_set,train_set,train_param)
 #-----------------------------------------------------------------------------------------------------------------#
 #                                              8. Saving Final Data Sets                                          #
 #-----------------------------------------------------------------------------------------------------------------#
+#Saving final data sets as .rda files
+save(x_train,file = "rda/x_train.rda")
+save(y_train,file = "rda/y_train.rda")
+save(x_test,file = "rda/x_test.rda")
+save(y_test,file = "rda/y_test.rda")
 
-
-
-#Cleaning Global Environment
-rm(index, test_ing, eng_dat, dat, nzv, ind_col, corr, dat_cat, names_col)
