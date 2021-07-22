@@ -85,3 +85,7 @@ options(scipen = 999)
 
 
 # 8. Conclusion
+
+Knn_imputation
+Multicollinearity - Anova Test - Between categorical and numeric predictors
+Outliers

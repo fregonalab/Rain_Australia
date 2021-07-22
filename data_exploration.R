@@ -1,4 +1,5 @@
 library(tidyverse)
+library(Hmisc)
 
 #Load data
 load("rda/rain.rda")
@@ -12,7 +13,7 @@ options(scipen = 999)
 #Dataset Dimensions
 dim(dat)
 
-#Dataset Structure
+#Data set Structure
 str(dat, vec.len = 2)
 
 #Small sample of observations
@@ -20,8 +21,6 @@ head(dat)
 
 #Summary Statistics
 summary(dat)
-
-e1071::skewness(dat)
 
 #Distinct values of each predictors
 dat %>%
@@ -32,7 +31,6 @@ dat %>%
 #-------------------------------------------------------------------------------------------------#
 #The first thing to explore is the distribution of all predictors. That is a important aspect to know 
 #before preprocessing the data set.
-library(Hmisc)
 dat %>% 
   select_if(is.numeric) %>%  
   hist.data.frame()
